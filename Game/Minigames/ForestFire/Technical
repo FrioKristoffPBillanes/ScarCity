@@ -1,0 +1,100 @@
+# Forest Fire Fighting Minigame — Technical Doc
+
+## Concept
+Players respond to a wildfire emergency by clicking on burning trees before the fire spreads. Teaches the importance of rapid wildfire response and how fires spread through ecosystems. Performance is tracked via an HP bar and feeds difficulty data into the companion minigame, Tree Replanting, via `ForestFireBridge`.
+
+---
+
+## Scene
+`ForestFireMinigame.unity` — fully 2D, separate from city scene. Ortho camera at (0,0,-10). Has Physics2DRaycaster + EventSystem (required for new Input System clicks).
+
+---
+
+## Win Condition
+- Player **cannot fail** this minigame — it always ends after 15 seconds and returns to the city as a success
+- The real stakes are difficulty: every uncontained fire increments `ForestFireBridge.UncontainedFires` by 1, which adds +2 to the target tile count in the Tree Replanting minigame
+- Calls `Succeed()` unconditionally on timer end
+
+---
+
+## Forest HP Bar
+- HP = trees alive / total trees spawned, shown as a percentage
+- Display only — does not trigger a fail state
+- Purely visual feedback to communicate performance to the player
+
+---
+
+## Fire Spread Logic
+- A random alive tree is set on fire every `fireSpawnInterval` seconds (default 2s)
+- If not clicked within `fireSpreadDelay` (default 1.2s), the fire:
+  - Burns down the origin tree
+  - Instantly burns up to 4 randomly chosen alive neighbors within `spreadRadius` (default 1.2 units)
+  - Increments `ForestFireBridge.UncontainedFires` by 1
+- Spread is **not recursive** — neighbors burn down immediately and do not re-ignite
+
+---
+
+## Interaction Flow
+1. 15s timer starts, fires begin randomly spawning on trees
+2. Player clicks a burning tree to extinguish it → tree returns to Alive, no penalty
+3. If not clicked in time → origin + up to 4 neighbors burn, uncontained count +1
+4. Timer hits 0 → `ForestFireBridge.UncontainedFires` saved → `Succeed()` → returns to city
+
+---
+
+## Scripts
+- `ForestFireMinigame.cs` — main controller. Spawns trees, runs fire spawn loop, tracks uncontained fires, owns the 15s timer, calls `Succeed()` on end
+- `TreeTile.cs` — individual tree. Manages alive/on-fire/burned states. Click-to-extinguish via `IPointerDownHandler`. Spread logic runs via coroutine
+- `ForestFireBridge.cs` — static class (no MonoBehaviour needed). Stores `UncontainedFires` and persists across scene loads automatically
+
+---
+
+## Prefabs Needed
+- `TreeTilePrefab` — SpriteRenderer + CircleCollider2D + `TreeTile.cs`. Assign 3 sprites in Inspector: `aliveSprite`, `fireSprite`, `burnedSprite`
+
+---
+
+## Key Settings (ForestFireMinigame Inspector)
+| Field | Default | Notes |
+|---|---|---|
+| `treeCount` | 50 | Total trees spawned |
+| `forestArea` | (8, 5) | Half-extents of random scatter area in world units |
+| `minTreeSpacing` | 0.6 | Minimum distance between trees |
+| `fireSpawnInterval` | 2.0s | Seconds between random fire spawns |
+| `fireSpreadDelay` | 1.2s | Seconds before unclicked fire spreads |
+| `phaseDuration` | 15s | Total minigame duration |
+| `phase2SceneName` | `"TreeMemoryMinigame"` | Only used if triggered in sequence with Tree Replanting |
+
+---
+
+## UI Elements Needed
+- HP bar `Image` (filled, horizontal) — assigned to `hpBar`
+- HP label `TMP` — e.g. "Forest HP: 84%"
+- Timer label `TMP` — counts down from 15
+- Phase label `TMP` — "Fight the Fires!"
+
+---
+
+## Key Technical Notes
+- URP — use **Sprite-Lit-Default** shader, not Sprites/Default
+- New Input System — `OnMouseDown` doesn't work. **Physics2DRaycaster** on camera is mandatory
+- `ForestFireMinigame.cs` currently transitions directly to the Tree Replanting scene on timer end — if used as a fully standalone crisis minigame, replace the `SceneManager.LoadScene` call with `Succeed()` via `MinigameBridge`
+- `ForestFireBridge` is a plain static class — no GameObject needed, survives scene loads automatically
+- Fire spread is not recursive — only immediate neighbors of the origin tree are affected
+
+---
+
+## What's Done
+- Tree spawning with minimum spacing ✅
+- Fire spawn loop with spread logic ✅
+- Click-to-extinguish via new Input System ✅
+- Forest HP bar driven by live tree count ✅
+- `ForestFireBridge` data handoff ✅
+- 15s timer and scene transition ✅
+
+## What's Left
+- Build `TreeTilePrefab` with 3 sprite states
+- Build UI (HP bar, timer, labels)
+- Decide: standalone crisis or always paired with Tree Replanting
+- Hook up `MinigameBridge` once core systems are in city scene
+- Test full flow: city → minigame → result → return to city
