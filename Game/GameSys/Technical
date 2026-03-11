@@ -1,0 +1,140 @@
+# Core Systems / Bridge — Technical Doc
+
+## Overview
+Four scripts that form the backbone of the game loop. None are placed in the scene yet — still pending hookup. All are written and ready.
+
+## GameManager.cs
+Singleton, DontDestroyOnLoad. Owns all global state.
+
+**Key fields:**
+- `totalTime` — 180s (3 minutes)
+- `maxHP` — 5
+- `maxScore` — 10000
+- `timeRemaining`, `currentHP`, `gameActive` — runtime state
+- `citySceneName`, `gameOverSceneName` — must match Build Profiles exactly
+
+**Score formula:**
+```
+MAX_SCORE × (hp/maxHP) × (0.5 + 0.5 × timeRemaining/totalTime)
+```
+- Full HP + instant finish → approaches 10000
+- Full HP + timer expired → 5000
+- HP = 0 → 0 (game over)
+- Time only contributes 50% weight, so surviving matters more than speed
+
+**Key methods:**
+- `StartGame()` — call from main menu Play button
+- `TakeDamage(int amount)` — called by CrisisMarker on fail
+- `EndGame(GameEndReason)` — internal, fires on HP=0 or timer expiry
+
+**On game end:** saves `FinalScore`, `FinalHP`, `WasPerfect`, `TimeLeft` to PlayerPrefs for GameOver scene to read.
+
+**Events:**
+- `OnHPChanged(int current, int max)` — CityHUD subscribes to this
+- `OnGameEnded(GameEndReason)` — reason is either `TimerExpired` or `CityDestroyed`
+
+---
+
+## MinigameBridge.cs
+Singleton, DontDestroyOnLoad. Handles all scene transitions between city and minigames.
+
+**Flow:**
+```
+CrisisMarker clicked
+→ BeginMinigame(sceneName, marker)
+    → pauses timer (gameActive = false)
+    → loads minigame scene
+
+Player finishes minigame
+→ ReturnToCity(bool success)
+    → resumes timer (gameActive = true)
+    → loads city scene
+    → notifies CrisisMarker via OnMinigameReturned(success)
+```
+
+**Key notes:**
+- Stores `_pendingMarker` and `_citySceneName` across scene boundary
+- `NotifyMarkerAfterLoad` waits one frame after city scene loads before notifying marker — this is intentional, gives scene time to initialize
+- Currently stubbed with Debug.Log in minigame scenes since not yet placed in scene
+
+---
+
+## CrisisMarker.cs
+Clickable popup that appears on the city map when a crisis spawns.
+
+**Lifecycle:**
+1. Spawned by CrisisSpawner at a spawn point
+2. Initialized with a `CrisisType` (scene name, display name, icon, time limit, HP damage)
+3. Counts down timer, pulses red when under `urgentThreshold` seconds
+4. Clicked → calls `MinigameBridge.BeginMinigame()`
+5. Timer hits 0 → `FailCrisis()` → `GameManager.TakeDamage()` → destroyed
+6. Minigame returns → `OnMinigameReturned(bool success)` → if fail, `TakeDamage()` → destroyed
+
+**Prefab needs:**
+- SpriteRenderer for icon
+- World Space Canvas with TMP labels (crisis name, countdown)
+- Filled Image for timer bar (fill method: horizontal)
+- Collider2D for click detection
+
+**Note:** uses `OnMouseDown` — this only works in the 3D city scene with a regular camera raycaster. Fine here since city scene is 3D.
+
+---
+
+## CrisisSpawner.cs
+Manages spawning CrisisMarkers across the city.
+
+**Key fields:**
+- `crisisMarkerPrefab` — the marker prefab
+- `spawnPoints` — empty GameObjects placed at valid crisis locations on city map
+- `initialSpawnInterval` / `finalSpawnInterval` — ramps from 20s down to 8s over game duration
+- `maxActiveCrises` — default 4
+- `crisisTypes` — list of `CrisisType` entries, one per minigame
+
+**CrisisType fields:**
+- `minigameSceneName` — must exactly match scene name in Build Profiles
+- `displayName` — shown on popup
+- `mapIcon` — sprite shown on city map
+- `timeLimit` — seconds before auto-fail
+- `hpDamageOnFail` — default 1
+
+**Spawn logic:**
+- Waits for `gameActive = true` before starting
+- Picks random unoccupied spawn point
+- Picks random CrisisType (uniform random, weighted random noted as future improvement)
+- Tracks occupied spawn indices, clears them when marker is resolved or destroyed
+
+---
+
+## CityHUD.cs
+Drives the city UI. Subscribes to `GameManager.OnHPChanged`.
+
+**UI elements needed:**
+- `timerLabel` (TMP) — shows `M:SS` format
+- `timerBar` (Image, filled horizontal) — depletes with time
+- `hpLabel` (TMP) — shows `HP: 4/5`
+- `hpHearts[]` (Image array) — heart icons, disabled as HP drops
+- `scoreLabel` (TMP) — live score, updates every frame
+
+---
+
+## Setup Order (when ready to hook up)
+1. Create empty GameObject `GameManager` in city scene
+2. Attach `GameManager.cs` + `MinigameBridge.cs` + `CrisisSpawner.cs`
+3. Create Canvas in city scene, attach `CityHUD.cs`, wire up UI elements
+4. Place empty GameObjects across city as crisis spawn points, assign to CrisisSpawner
+5. Fill in CrisisTypes list with each minigame's scene name + settings
+6. Add `CrisisMarker` prefab to CrisisSpawner
+7. Hook up Main Menu Play button to `GameManager.Instance.StartGame()`
+8. Create GameOver scene that reads PlayerPrefs for final score display
+
+## What's Done
+- All 4 scripts written ✅
+- Logic complete and reviewed ✅
+
+## What's Left
+- Place in scene
+- Build CrisisMarker prefab
+- Build CityHUD Canvas
+- Build Main Menu scene
+- Build GameOver scene
+- Test full loop: spawn → click → minigame → return → damage → game over
