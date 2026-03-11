@@ -1,0 +1,105 @@
+# ScarCity — Project Handoff Summary
+
+## What it is
+Unity 6 (URP, 6000.3.6f1) 3D city game inspired by Dispatch. Top-down orthographic camera. STEM-teaching minigames triggered by crisis events on a city map. 3-minute timer, HP system, score = f(HP, time). Made by Grade 8 students.
+
+## Scene Setup
+- **ScarCity.unity** — main city scene. SimplePoly City asset pack. ~1044 prefab instances. Ortho camera at (400, 130, 140), 25° tilt, size 90. URP.
+- **EarthquakeTriangulation.unity** — separate 2D minigame scene. Ortho camera at (0,0,-10).
+- **GameOver.unity** — empty placeholder scene for game over state. To be built out later.
+- All three scenes registered in Build Profiles.
+
+## Scene Hierarchy (ScarCity)
+```
+ScarCity
+├── Waypoints         (all traffic waypoints)
+├── CarSpawner        (lane 1 entry)
+├── CarSpawner (1)    (lane 2 entry)
+├── City              (all visual city assets, SimplePoly pack)
+├── CrisisSpawns
+│   └── SpawnPoint    (one spawn point so far — add more)
+└── [runtime] DontDestroyOnLoad
+    ├── GameManager   (has GameManager.cs, MinigameBridge.cs, CrisisSpawner.cs)
+    └── [Debug Updater] (from SimplePoly — ignore)
+```
+
+**Important:** GameManager, MinigameBridge, and CrisisSpawner are all on the **same GameObject**. Do NOT attach them to any other object (learned the hard way — they accidentally ended up on the Directional Light).
+
+## Scripts Written
+
+### Core Systems
+- `GameManager.cs` — singleton, DontDestroyOnLoad, owns timer/HP/score. Score formula: `MAX_SCORE × (hp/maxHP) × (0.5 + 0.5 × timeLeft/totalTime)`. Defaults: `timeRemaining=180`, `currentHP=5`, `gameActive=true` (temp — revert to false when main menu is built). `citySceneName` must be `"ScarCity"`, `gameOverSceneName` must be `"GameOver"`.
+- `CrisisSpawner.cs` — spawns CrisisMarkers at spawn points at escalating rate (20s→8s). Has one CrisisType configured: EarthquakeTriangulation. CrisisMarker prefab must be assigned in Inspector.
+- `CrisisMarker.cs` — clickable popup with countdown timer. Uses **New Input System** (`Mouse.current.leftButton.wasPressedThisFrame` + `Physics.Raycast`) for click detection — NOT OnMouseDown. Has `Billboard.cs` attached so it always faces the camera. Needs a **SphereCollider** (not CircleCollider2D) on the root.
+- `MinigameBridge.cs` — singleton on same GameObject as GameManager. `BeginMinigame()` pauses timer and loads minigame scene. `ReturnToCity(bool)` resumes timer and notifies the marker.
+- `MinigameResult.cs` — abstract base class for all minigame controllers. Call `Succeed()` or `Fail()`.
+- `CityHUD.cs` — drives timer label/bar, HP hearts, score. **Not yet placed in scene.**
+- `Billboard.cs` — makes a GameObject always face the main camera via `LateUpdate`. Attached to CrisisMarker prefab root.
+
+### CrisisMarker Prefab (at Assets/Prefabs/CrisisMarker)
+```
+CrisisMarker (root — CrisisMarker.cs, Billboard.cs, SphereCollider r=3, scale 5,5,1)
+├── Icon (SpriteRenderer, Knob sprite)
+└── Canvas (World Space, scale 0.05,0.05,0.05)
+    ├── TimerBar (Image, Filled, Radial 360)
+    ├── CrisisName (TextMeshProUGUI)
+    └── Countdown (TextMeshProUGUI)
+```
+
+### Earthquake Minigame (BUILT + UI hooked up)
+- `GridBackground.cs` — procedural km grid via LineRenderers. LineMaterial assigned (Sprite-Lit-Default URP shader). LabelPrefab assigned (3D TextMeshPro world-space prefab).
+- `SeismicStation.cs` — New Input System (IPointerDownHandler etc), draws radius line + circle. Requires Physics2DRaycaster on camera + EventSystem in scene.
+- `EarthquakeMinigame.cs` — 3 stations, circumcircle method to find epicenter, acceptable error 1.5km. Stations at (-6,4), (5,5), (0,-6). Actual epicenter (1.5, 1.0). Inherits MinigameResult.
+
+**EarthquakeTriangulation scene hierarchy:**
+```
+EarthquakeTriangulation
+├── Main Camera (has Physics2DRaycaster)
+├── Directional Light
+├── Grid (GridBackground.cs — lineMaterial + labelPrefab assigned)
+├── EarthquakeMinigame (EarthquakeMinigame.cs — all UI refs assigned)
+│   └── Canvas (Screen Space Overlay)
+│       ├── InstructionText (TextMeshProUGUI)
+│       ├── StatusText (TextMeshProUGUI)
+│       ├── SubmitButton (Button → calls OnSubmitPressed())
+│       └── ResultPanel
+│           └── ResultText (TextMeshProUGUI)
+└── EventSystem (InputSystemUIInputModule)
+```
+
+**To test:** Must enter via ScarCity scene by clicking a crisis marker — do NOT play EarthquakeTriangulation scene directly as MinigameBridge.Instance will be null.
+
+### Traffic System (working in ScarCity scene)
+- `Waypoint.cs` — graph node. `nextWaypoints`, `isExit` (red gizmo), `isStop` (blue gizmo) with stopChance/minStopTime/maxStopTime. `laneID` (-1=ignored, 0=north, 1=south, 2=east, 3=west) for U-turn prevention.
+- `CarAgent.cs` — follows waypoints, random speed, handles exit/stop via coroutine. Remembers last laneID to filter out U-turns at intersections.
+- `CarSpawner.cs` — spawns cars at entry waypoints every spawnInterval up to maxCars, despawns at exit waypoints.
+
+**Traffic status:** Working. Cars spawn, drive, stop at bus stop/gas station/pizza place. Waypoint network nearly complete. 4 fully-bidirectional intersections wired with laneID system.
+
+**Intersection wiring pattern:**
+```
+Entry WP (laneID=N) → Center WP (laneID=-1) → Exit WPs (laneID=0/1/2/3)
+```
+Center points to all exits. Exit WPs never point back to center.
+
+## Minigame List
+Earthquake Triangulation **(BUILT)**, Coast Guard, Atmosphere Gas Control, Air Filter Maker, Hazardous Waste Control, Trash Segregation, Recycling, River Waste Cleanup, Solar Panel Install, Solar Panel Maintenance + quiz sections mixed in.
+
+## Key Technical Notes
+- URP project — use **Sprite-Lit-Default** shader, not Sprites/Default
+- **New Input System active** — OnMouseDown does NOT work in 2D scenes. Use IPointerDownHandler + Physics2DRaycaster + EventSystem. In 3D city scene, use `Mouse.current` + `Physics.Raycast` instead.
+- CrisisMarker uses `TextMeshProUGUI` (not TextMeshPro) for its Canvas labels
+- Minigame scenes are fully 2D, city scene is 3D — intentional and fine
+- 1 Unity unit = 1 km in earthquake minigame
+- Road surface Y≈0. Each road tile 20 units long, waypoints every ~60 units on straights
+- `gameActive = true` is hardcoded for testing — revert to `false` when main menu is built
+- Do not use ✓ or ✗ characters in result text — LiberationSans font doesn't support them
+
+## What's Next
+1. Add more CrisisSpawn points around the city
+2. Build CityHUD Canvas (timer upper left, HP lower right, score) and place in ScarCity scene
+3. Build Main Menu scene with Play button calling `GameManager.Instance.StartGame()`
+4. Build GameOver scene reading PlayerPrefs for final score display
+5. Finish waypoint network + test full spawn→drive→despawn loop
+6. Build second minigame
+7. Revert `gameActive` default to `false` once main menu exists
