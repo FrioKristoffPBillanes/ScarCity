@@ -1,0 +1,59 @@
+# Earthquake Triangulation Minigame — Technical Doc
+
+# Concept
+Player locates an earthquake epicenter using seismic data from 3 stations. Each station detected the P-wave at a certain distance — player draws a circle radius from each station, and where all 3 circles intersect is the epicenter.
+
+# Scene
+`EarthquakeTriangulation.unity` — fully 2D, separate from city scene. Ortho camera at (0,0,-10). Has Physics2DRaycaster + EventSystem (required for new Input System clicks).
+
+# Win Condition
+The circumcircle of the 3 best intersection points (one per circle pair) is calculated. If the circumcircle's **center** is within `acceptableErrorKm` (default 2.5km) of `actualEpicenter`, player wins.
+
+# Station Layout
+- Station A: (-6, 4) — correct radius ~8.0km
+- Station B: (5, 5) — correct radius ~5.5km
+- Station C: (0, -6) — correct radius ~7.0km
+- Actual epicenter: (1.36, 0.87)
+- 1 Unity unit = 1 km
+
+# Interaction Flow
+1. Player clicks and drags from Station A to set its radius
+2. Radius snaps to 0.5km increments
+3. On release, station locks in and Station B becomes active
+4. Repeat for B and C
+5. After all 3 locked, intersection dots appear + Submit button activates
+6. Player hits Submit → circumcircle calculated → result shown → 2.5s delay → returns to city
+
+# Scripts
+- `EarthquakeMinigame.cs` — main controller, inherits `MinigameResult`. Spawns stations, handles submit, runs circumcircle math, calls `Succeed()`/`Fail()`
+- `SeismicStation.cs` — handles drag input via `IPointerDownHandler`, `IDragHandler`, `IPointerUpHandler`. Draws radius line + circle via LineRenderers. Fires `OnCircleConfirmed` event on release
+- `GridBackground.cs` — procedural grid via LineRenderers. Needs `LineMaterial` (Sprite-Lit-Default URP shader)
+
+# Prefabs Needed
+- `StationPrefab` — SpriteRenderer + CircleCollider2D (radius 2) + SeismicStation.cs + child LineRenderer for circle + child TMP label
+- `IntersectionDot` — small SpriteRenderer, yellow, scale 0.3
+- `CircumcirclePrefab` — empty GameObject with LineRenderer, shows the result circle
+
+# Key Technical Notes
+- URP — Sprite-Lit-Default shader, NOT Sprites/Default
+- New Input System — OnMouseDown doesn't work, Physics2DRaycaster on camera is mandatory
+- `MinigameBridge` is currently stubbed out with Debug.Log — not yet hooked up to city scene
+- `EarthquakeMinigame` inherits `MinigameResult` — never call `Succeed()`/`Fail()` directly, always goes through the bridge
+- `showEpicenterInEditor` debug flag shows actual epicenter location in scene view for testing
+
+# UI Elements Needed (not yet built)
+- Instruction text (TMP) — tells player which station to set
+- Status text (TMP) — shows current state
+- Submit button — activates after all 3 stations locked
+- Result panel + result text — shows success/fail with error distance
+
+# What's Done
+- All math working (circle intersections, circumcircle, error checking) ✅
+- Station drag interaction working ✅
+- Grid rendering working ✅
+- Snap to 0.5km working ✅
+
+# What's Left
+- Build the UI (instruction text, status, submit button, result panel)
+- Hook up MinigameBridge once core systems are placed in city scene
+- Test full flow entry→minigame→result→return to city
