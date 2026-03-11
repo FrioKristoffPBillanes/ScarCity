@@ -1,0 +1,116 @@
+# Tree Replanting Minigame — Technical Doc
+
+## Concept
+Players restore a forest after a wildfire by replanting trees in the correct positions. Teaches reforestation strategy and biodiversity through a memory challenge — the pattern of tiles to memorize represents an optimal planting layout. Difficulty scales with how badly the forest was damaged in the companion minigame, Forest Fire Fighting.
+
+---
+
+## Scene
+`TreeMemoryMinigame.unity` — fully 2D, separate from city scene. Ortho camera at (0,0,-10). Has Physics2DRaycaster + EventSystem (required for new Input System clicks).
+
+---
+
+## Win / Fail Condition
+- **Win:** Complete all rounds up to the target tile count → `Succeed()`
+- **Fail:** Click any wrong tile in any round → `Fail()`
+- Target tile count is calculated from `ForestFireBridge.UncontainedFires` (set by Forest Fire Fighting minigame). If played standalone, defaults to 4
+
+---
+
+## Difficulty Formula
+```
+targetTileCount = Mathf.Clamp(4 + ForestFireBridge.UncontainedFires * 2, 4, 12)
+```
+| Uncontained Fires | Target Tiles |
+|---|---|
+| 0 | 4 |
+| 1 | 6 |
+| 2 | 8 |
+| 3 | 10 |
+| 4+ | 12 (cap) |
+
+---
+
+## Round Progression
+- Rounds start at **1 tile**, increase by 1 each round
+- Player must get **100% correct** to advance — any wrong tile = immediate `Fail()`
+- Completing the target tile count round = `Succeed()`
+- Example: target = 6 → player must survive rounds 1, 2, 3, 4, 5, 6 in sequence
+
+---
+
+## Interaction Flow
+1. Pattern of N tiles highlighted on the 5×5 grid for `showPatternDuration` (default 2.5s)
+2. Pattern hides — player clicks tiles from memory
+3. Wrong tile clicked → tiles reveal (correct = green, wrong = red) → `Fail()` after short delay
+4. All N correct → tiles reveal green → short pause → next round begins (N+1 tiles)
+5. Final round cleared → `Succeed()`
+
+---
+
+## Scripts
+- `TreeMemoryMinigame.cs` — main controller, inherits `MinigameResult`. Reads `ForestFireBridge`, builds grid, runs round loop, calls `Succeed()`/`Fail()`
+- `MemoryTile.cs` — individual tile. Manages empty/highlighted/selected/correct/wrong visual states via `IPointerDownHandler`. Reports clicks to manager via `OnTileSelected()`
+- `ForestFireBridge.cs` — static class shared with Forest Fire Fighting. Read-only from this minigame's perspective
+
+---
+
+## Prefabs Needed
+- `MemoryTilePrefab` — SpriteRenderer + BoxCollider2D + `MemoryTile.cs`. No sprites needed — color states are set entirely via script. A simple white quad sprite works fine
+
+---
+
+## Tile Color States
+| State | Color | When |
+|---|---|---|
+| Empty | Dim green | Default / input phase |
+| Highlighted | Bright green | Pattern display phase |
+| PlayerSelected | Yellow | Player clicked, awaiting result |
+| Correct | Green | Reveal — right tile clicked |
+| Wrong | Red | Reveal — wrong tile clicked or missed |
+
+---
+
+## Key Settings (TreeMemoryMinigame Inspector)
+| Field | Default | Notes |
+|---|---|---|
+| `gridSize` | 5 | Grid is gridSize × gridSize |
+| `tileSpacing` | 1.2 | World units between tile centers |
+| `showPatternDuration` | 2.5s | How long the pattern is visible |
+| `resultDisplayDuration` | 1.2s | Pause after each round result before next round |
+
+---
+
+## UI Elements Needed
+- Round label `TMP` — e.g. "Round 3 / 7"
+- Instruction text `TMP` — "Memorize the tiles!" / "Now click the correct tiles!"
+- Status text `TMP` — live feedback e.g. "2 more tiles to go..." / "✓ Correct!" / "✗ Wrong tile!"
+- Phase label `TMP` — "Tree Replanting"
+
+---
+
+## Key Technical Notes
+- URP — use **Sprite-Lit-Default** shader, not Sprites/Default
+- New Input System — `OnMouseDown` doesn't work. **Physics2DRaycaster** on camera is mandatory
+- `TreeMemoryMinigame` inherits `MinigameResult` — never call `Succeed()`/`Fail()` directly, always goes through `MinigameBridge`
+- `ForestFireBridge` defaults to 0 uncontained fires if Forest Fire Fighting was not played — minigame is fully playable standalone at minimum difficulty
+- Players cannot deselect tiles once clicked — intentional
+- Pattern is re-randomized each round (does not build on previous round's pattern)
+
+---
+
+## What's Done
+- Grid generation ✅
+- Round progression logic ✅
+- Pattern randomization ✅
+- 100% correct win condition per round ✅
+- Immediate fail on wrong tile ✅
+- Difficulty scaling from `ForestFireBridge` ✅
+- `Succeed()`/`Fail()` via `MinigameBridge` ✅
+
+## What's Left
+- Build `MemoryTilePrefab`
+- Build UI (round label, instruction text, status text)
+- Hook up `MinigameBridge` once core systems are in city scene
+- Test full flow: city → minigame → result → return to city
+- Test difficulty range (0 fires through 4+ fires)
