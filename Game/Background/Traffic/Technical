@@ -1,0 +1,78 @@
+# Traffic System — Technical Doc
+
+## Concept
+Background flavor only. Cars spawn at city entry points, drive through the city following a waypoint graph, despawn at exit points. No collision detection, no pathfinding — just waypoint chasing.
+
+## Scripts
+- `Waypoint.cs` — graph node. Stores next waypoints, flags, laneID
+- `CarAgent.cs` — drives a car along the graph
+- `CarSpawner.cs` — spawns and despawns cars
+
+## Waypoint Flags
+| Flag | Color | Behavior |
+|------|-------|----------|
+| default | yellow | normal node, pick random next |
+| `isExit` | red | car despawns here (spawned cars) or loops to start (pre-placed) |
+| `isStop` | blue | car rolls against `stopChance`, if wins it waits `minStopTime`-`maxStopTime` seconds before continuing |
+
+## LaneID System
+Prevents U-turns at intersections. Each waypoint has a `laneID` (default -1 = disabled).
+
+**Rule:** when a car leaves a waypoint, it remembers that waypoint's laneID. At the next waypoint, it refuses to pick any exit with that same laneID.
+
+**Convention used in ScarCity:**
+- 0 = northbound
+- 1 = southbound
+- 2 = eastbound
+- 3 = westbound
+- -1 = no filtering (default, most waypoints)
+
+**Intersection wiring:**
+```
+Entry WP (laneID=N) → Center WP (laneID=-1) → Exit WPs (laneID=0/1/2/3)
+```
+- Only entry WPs point to center
+- Center points to all exits
+- Exit WPs point forward down the road ONLY, never back to center
+
+## Weighted Random
+Adding the same waypoint multiple times in `nextWaypoints` increases its chance of being picked. e.g. Waypoint A listed twice + Waypoint B listed once = 2/3 chance of A, 1/3 chance of B.
+
+## CarSpawner Setup
+- Attach to empty GameObject in city scene
+- Assign car prefabs (each needs `CarAgent.cs`, `isPrePlaced` unchecked)
+- Assign entry waypoints (the off-screen road entry points)
+- `maxCars` — total cars in city at once
+- `spawnInterval` — seconds between spawns
+
+## City-Specific Setup
+- 3 off-screen roads, all going same direction
+- 2 entry roads, 1 dedicated exit road
+- Single lane per road (two-lane was scrapped, too complex for background flavor)
+- Waypoints placed every ~60 units on straights (3 road tiles), denser at intersections
+- All waypoints parented under a `Waypoints` empty GameObject in hierarchy
+- All waypoints at Y=0 (road surface is technically -5.245367e-06, doesn't matter)
+
+## Stop Locations
+- Bus stop
+- Gas station
+- Pizza place (T-junction stop, cars can pull in from both directions)
+
+## Key Technical Notes
+- No collision avoidance — cars phase through each other, nobody notices from game camera height
+- `isPrePlaced = true` on CarAgent makes it loop back to `startWaypoint` on exit instead of despawning — not currently used since all cars are spawner-managed
+- Dead-end waypoints (no next waypoints) log a warning and deactivate the car
+- CarAgent uses `_incomingLaneID` to track last known laneID — `-1` waypoints don't overwrite it, so the last real laneID persists through `-1` nodes
+- `StopRoutine` is a coroutine — use `yield break` not `return` for early exits
+
+## What's Done
+- Full waypoint network placed across city ✅ (nearly)
+- Spawning and despawning working ✅
+- Stop waypoints working ✅
+- LaneID U-turn prevention implemented ✅
+- Weighted random via duplicate entries working ✅
+
+## What's Left
+- Finish remaining waypoint connections
+- Finish wiring the 4 fully-bidirectional intersections with laneIDs
+- Test full spawn → drive → despawn loop with multiple car prefabs
